@@ -511,7 +511,7 @@ function getTargetDims() {
 // =============================================
 //  Process one file
 // =============================================
-async function processOne(file) {
+async function processOne(file, clipStart, clipEnd) {
   const doClip  = currentTab === 'clip'  || currentTab === 'both';
   const doScale = currentTab === 'scale' || currentTab === 'both';
   const { tw, th } = getTargetDims();
@@ -534,8 +534,8 @@ async function processOne(file) {
   vid.muted = true;
   await new Promise(r => vid.addEventListener('loadedmetadata', r, { once: true }));
 
-  const clipS   = doClip ? selStart : 0;
-  const clipE   = doClip ? selEnd   : vid.duration;
+  const clipS   = doClip ? clipStart : 0;
+  const clipE   = doClip ? clipEnd   : vid.duration;
   const clipDur = clipE - clipS;
 
   // Seek to start — wait for seeked (critical fix)
@@ -623,6 +623,11 @@ btnGo.addEventListener('click', async () => {
       videoDuration = preview.duration;
       videoW = preview.videoWidth;
       videoH = preview.videoHeight;
+
+      // 保存用户在界面上设置的截取范围（第一个文件用实际选择，后续文件默认完整范围）
+      const userClipStart = i === 0 ? selStart : 0;
+      const userClipEnd   = i === 0 ? selEnd   : videoDuration;
+
       selStart = 0; selEnd = videoDuration;
       updateTL(); updateInputs(); updateDur();
       $('i-dur').textContent = fmtTime(videoDuration);
@@ -634,7 +639,7 @@ btnGo.addEventListener('click', async () => {
       progBar.style.width = '0%';
       progPct.textContent = '0%';
 
-      const result = await processOne(file);
+      const result = await processOne(file, userClipStart, userClipEnd);
       outputUrls.push({ name: file.name, blob: result.blob, mime: result.mime });
     }
 
