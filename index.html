@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视频快剪工具 · VideoKit</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0a0f;--surface:#13131a;--surface2:#1c1c27;--border:rgba(255,255,255,.07);--accent:#7c6cff;--accent2:#c084fc;--glow:rgba(124,108,255,.25);--text:#f0f0f8;--muted:rgba(240,240,248,.5);--success:#4ade80;--warn:#fb923c;--r:16px;--r-sm:10px;}
+html{background:var(--bg);color:var(--text);font-family:-apple-system,'PingFang SC','Helvetica Neue',sans-serif;font-size:15px;line-height:1.6;min-height:100vh}
+.app{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+.header{text-align:center;margin-bottom:36px}
+.logo{font-size:12px;letter-spacing:.35em;color:var(--accent);text-transform:uppercase;margin-bottom:8px}
+.title{font-size:clamp(22px,4vw,34px);font-weight:700;background:linear-gradient(135deg,#fff 40%,var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{color:var(--muted);margin-top:6px;font-size:13px}
+.drop-zone{border:2px dashed var(--border);border-radius:var(--r);background:var(--surface);padding:52px 24px;text-align:center;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.drop-zone::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0%,var(--glow),transparent 70%);opacity:0;transition:opacity .3s}
+.drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:var(--surface2);box-shadow:0 0 40px var(--glow)}
+.drop-zone:hover::before,.drop-zone.over::before{opacity:1}
+.drop-icon{font-size:44px;margin-bottom:14px;display:block}
+.drop-label{font-size:16px;font-weight:500;margin-bottom:5px}
+.drop-hint{color:var(--muted);font-size:13px}
+#file-input{display:none}
+.workspace{display:none;flex-direction:column;gap:18px;margin-top:20px}
+.workspace.on{display:flex}
+.preview-wrap{position:relative;border-radius:var(--r);overflow:hidden;background:#000;max-height:360px;display:flex;align-items:center;justify-content:center}
+#preview{max-width:100%;max-height:360px;display:block;border-radius:var(--r)}
+.file-badge{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:20px;padding:3px 12px;font-size:12px;color:var(--muted)}
+.info-row{display:flex;gap:10px;flex-wrap:wrap}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 14px;font-size:12px}
+.chip span{color:var(--muted);margin-right:4px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px}
+.card-hd{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.card-ico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.card-ico.p{background:rgba(124,108,255,.2)}
+.card-ico.q{background:rgba(192,132,252,.2)}
+.card-ttl{font-size:15px;font-weight:600}
+.card-sub{color:var(--muted);font-size:12px;margin-top:1px}
+.tabs{display:flex;gap:6px}
+.tab{flex:1;padding:10px;border:1px solid var(--border);background:var(--surface2);border-radius:var(--r-sm);color:var(--muted);font-size:14px;cursor:pointer;transition:all .2s;font-weight:500}
+.tab.on{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 4px 20px var(--glow)}
+.tl-wrap{position:relative;margin-bottom:14px}
+.tl-bar{width:100%;height:54px;background:var(--surface2);border-radius:8px;position:relative;overflow:visible;cursor:pointer;border:1px solid var(--border)}
+#thumb-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;border-radius:7px}
+.tl-sel{position:absolute;top:0;bottom:0;background:rgba(124,108,255,.28);border-left:2px solid var(--accent);border-right:2px solid var(--accent);pointer-events:none}
+.tl-ph{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--warn);pointer-events:none;border-radius:2px}
+.handle{position:absolute;top:0;bottom:0;width:18px;cursor:ew-resize;z-index:5;display:flex;align-items:center;justify-content:center}
+.handle::after{content:'';width:4px;height:26px;background:var(--accent);border-radius:2px;box-shadow:0 0 8px var(--accent);transition:box-shadow .15s,transform .15s}
+.handle.snap::after{box-shadow:0 0 16px var(--accent),0 0 28px rgba(124,108,255,.5);transform:scaleX(1.4)}
+.tl-labels{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted)}
+.t-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.t-field label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+.t-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s;font-variant-numeric:tabular-nums}
+.t-input:focus{border-color:var(--accent)}
+.dur-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(124,108,255,.1);border:1px solid rgba(124,108,255,.25);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--accent);margin-top:10px}
+.scale-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.sc-opt{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 8px;text-align:center;cursor:pointer;transition:all .2s}
+.sc-opt:hover{border-color:var(--accent)}
+.sc-opt.on{border-color:var(--accent);background:rgba(124,108,255,.12);box-shadow:0 0 16px var(--glow)}
+.sc-ratio{font-size:17px;font-weight:700;display:block}
+.sc-lbl{font-size:11px;color:var(--muted);margin-top:3px;display:block}
+.custom-row{display:none;gap:10px;align-items:center}
+.custom-row.on{display:flex}
+.c-inp{width:86px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:14px;outline:none;text-align:center;transition:border-color .2s}
+.c-inp:focus{border-color:var(--accent)}
+.batch-queue{display:none;flex-direction:column;gap:6px;margin-top:6px}
+.batch-queue.on{display:flex}
+.batch-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px;font-size:12px}
+.batch-item-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.batch-s{font-weight:600;white-space:nowrap}
+.batch-s.done{color:var(--success)}
+.batch-s.run{color:var(--accent)}
+.batch-s.wait{color:var(--muted)}
+.batch-s.err{color:#f87171}
+.btn-go{width:100%;padding:15px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:var(--r);color:#fff;font-size:16px;font-weight:600;cursor:pointer;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;box-shadow:0 4px 24px var(--glow);letter-spacing:.02em}
+.btn-go::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.15),transparent)}
+.btn-go:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 32px var(--glow)}
+.btn-go:disabled{opacity:.45;cursor:not-allowed}
+.prog-wrap{display:none}
+.prog-wrap.on{display:block}
+.prog-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.prog-name{font-size:13px;color:var(--text)}
+.prog-pct{font-size:13px;color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+.prog-outer{background:var(--surface2);border-radius:100px;height:8px;overflow:hidden}
+.prog-inner{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s;box-shadow:0 0 10px var(--accent)}
+.result-wrap{display:none;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.2);border-radius:var(--r);padding:18px 22px;align-items:center;gap:14px;flex-wrap:wrap}
+.result-wrap.on{display:flex}
+.r-icon{font-size:26px}
+.r-info{flex:1;min-width:100px}
+.r-title{font-weight:600;color:var(--success);margin-bottom:2px}
+.r-meta{font-size:12px;color:var(--muted)}
+.btn-dl{background:var(--success);border:none;border-radius:9px;padding:9px 18px;color:#000;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;text-decoration:none;display:inline-block}
+.btn-dl:hover{background:#86efac;transform:translateY(-1px)}
+.btn-dl-all{background:var(--accent);border:none;border-radius:9px;padding:9px 18px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap;text-decoration:none;display:inline-block}
+.btn-dl-all:hover{filter:brightness(1.1);transform:translateY(-1px)}
+.btn-reset{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:9px 14px;color:var(--muted);font-size:13px;cursor:pointer;transition:all .2s;white-space:nowrap}
+.btn-reset:hover{border-color:var(--muted);color:var(--text)}
+.notice{background:rgba(251,146,60,.07);border:1px solid rgba(251,146,60,.25);border-radius:var(--r-sm);padding:10px 14px;font-size:12px;color:#fdba74;line-height:1.7}
+.notice strong{color:#fb923c}
+@media(max-width:520px){.scale-grid{grid-template-columns:repeat(2,1fr)}.t-row{grid-template-columns:1fr}.tabs{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="logo">✦ VideoKit</div>
+    <h1 class="title">视频快剪工具</h1>
+    <p class="subtitle">纯本地处理 · 无外部依赖 · 单文件 / 批量截取 + 缩小</p>
+  </header>
+
+  <div class="drop-zone" id="drop-zone">
+    <input type="file" id="file-input" accept="video/*" multiple>
+    <span class="drop-icon">🎬</span>
+    <div class="drop-label">点击选择视频，或拖拽到此处（支持多选）</div>
+    <div class="drop-hint">MP4 · MOV · WebM · 支持批量选择 · 完全本地处理，不上传</div>
+  </div>
+
+  <div class="workspace" id="workspace">
+
+    <div class="preview-wrap">
+      <video id="preview" controls playsinline muted></video>
+      <div class="file-badge" id="file-badge">video.mp4</div>
+    </div>
+
+    <div class="info-row">
+      <div class="chip"><span>时长</span><strong id="i-dur">--</strong></div>
+      <div class="chip"><span>分辨率</span><strong id="i-res">--</strong></div>
+      <div class="chip"><span>文件大小</span><strong id="i-size">--</strong></div>
+      <div class="chip"><span>格式</span><strong>WebM</strong></div>
+    </div>
+
+    <div class="batch-queue" id="batch-queue"></div>
+
+    <div class="tabs">
+      <button class="tab on" data-tab="clip">✂️ 截取片段</button>
+      <button class="tab" data-tab="scale">🔻 缩小尺寸</button>
+      <button class="tab" data-tab="both">⚡ 同时处理</button>
+    </div>
+
+    <div class="card" id="c-clip">
+      <div class="card-hd">
+        <div class="card-ico p">✂️</div>
+        <div>
+          <div class="card-ttl">截取片段</div>
+          <div class="card-sub">拖动时间轴两端把手，或直接输入起止时间</div>
+        </div>
+      </div>
+      <div class="tl-wrap">
+        <div class="tl-bar" id="tl-bar">
+          <canvas id="thumb-canvas"></canvas>
+          <div class="tl-sel" id="tl-sel"></div>
+          <div class="handle" id="h-start" style="left:0%;transform:translateX(-9px)"></div>
+          <div class="handle" id="h-end"   style="left:100%;transform:translateX(-9px)"></div>
+          <div class="tl-ph" id="tl-ph"></div>
+        </div>
+        <div class="tl-labels">
+          <span id="lb-0">0:00</span>
+          <span id="lb-q">--</span>
+          <span id="lb-h">--</span>
+          <span id="lb-3q">--</span>
+          <span id="lb-e">--</span>
+        </div>
+      </div>
+      <div class="t-row">
+        <div class="t-field">
+          <label>开始时间</label>
+          <input class="t-input" id="t-start" type="text" value="00:00:00" placeholder="HH:MM:SS">
+        </div>
+        <div class="t-field">
+          <label>结束时间</label>
+          <input class="t-input" id="t-end" type="text" value="00:00:10" placeholder="HH:MM:SS">
+        </div>
+      </div>
+      <div class="dur-chip">⏱ 片段时长：<strong id="clip-dur">--</strong></div>
+    </div>
+
+    <div class="card" id="c-scale" style="display:none">
+      <div class="card-hd">
+        <div class="card-ico q">🔻</div>
+        <div>
+          <div class="card-ttl">缩小分辨率</div>
+          <div class="card-sub">等比缩放，大幅压缩文件体积</div>
+        </div>
+      </div>
+      <div class="scale-grid">
+        <div class="sc-opt" data-s="1080"><span class="sc-ratio">1080p</span><span class="sc-lbl">原始高清</span></div>
+        <div class="sc-opt on" data-s="720"><span class="sc-ratio">720p</span><span class="sc-lbl">推荐·均衡</span></div>
+        <div class="sc-opt" data-s="540"><span class="sc-ratio">540p</span><span class="sc-lbl">小体积</span></div>
+        <div class="sc-opt" data-s="360"><span class="sc-ratio">360p</span><span class="sc-lbl">极小体积</span></div>
+        <div class="sc-opt" data-s="25%"><span class="sc-ratio">25%</span><span class="sc-lbl">缩1/4</span></div>
+        <div class="sc-opt" data-s="50%"><span class="sc-ratio">50%</span><span class="sc-lbl">缩一半</span></div>
+        <div class="sc-opt" data-s="75%"><span class="sc-ratio">75%</span><span class="sc-lbl">轻度压缩</span></div>
+        <div class="sc-opt" data-s="custom"><span class="sc-ratio">自定义</span><span class="sc-lbl">手动输入</span></div>
+      </div>
+      <div class="custom-row" id="custom-row">
+        <input class="c-inp" id="cw" type="number" placeholder="宽" min="1" max="7680">
+        <span style="color:var(--muted)">×</span>
+        <input class="c-inp" id="ch" type="number" placeholder="高" min="1" max="4320">
+        <span style="font-size:12px;color:var(--muted)">像素（留空自动等比）</span>
+      </div>
+    </div>
+
+    <div class="notice">⚡ <strong>本地处理：</strong>截取 + 缩小通过 Canvas 离屏渲染完成。视频音频随录保留。输出 WebM 格式（Chrome/Edge/微信均可直接播放）。批量时每条独立设置参数。</div>
+
+    <button class="btn-go" id="btn-go" disabled>⚡ 开始处理</button>
+
+    <div class="prog-wrap" id="prog-wrap">
+      <div class="prog-head">
+        <span class="prog-name" id="prog-name">准备中…</span>
+        <span class="prog-pct" id="prog-pct">0%</span>
+      </div>
+      <div class="prog-outer"><div class="prog-inner" id="prog-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="result-wrap" id="result-wrap">
+      <div class="r-icon">✅</div>
+      <div class="r-info">
+        <div class="r-title" id="r-title">处理完成！</div>
+        <div class="r-meta" id="r-meta">文件已准备好</div>
+      </div>
+      <a class="btn-dl" id="btn-dl" download href="#">⬇ 下载</a>
+      <button class="btn-dl-all" id="btn-dl-all" style="display:none">⬇ 下载全部</button>
+      <button class="btn-reset" id="btn-reset">重新开始</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// =============================================
+//  State
+// =============================================
+let batchFiles  = [];
+let videoIndex  = 0;
+let videoDuration = 0;
+let videoW = 0, videoH = 0;
+let selStart = 0, selEnd = 0;
+let dragging = null;
+let currentTab  = 'clip';
+let selectedScale = '720';
+let outputUrls = [];
+let isProcessing = false;
+
+// =============================================
+//  Elements
+// =============================================
+const $ = id => document.getElementById(id);
+const dropZone  = $('drop-zone');
+const fileInput = $('file-input');
+const workspace = $('workspace');
+const preview   = $('preview');
+const tlBar     = $('tl-bar');
+const tlSel     = $('tl-sel');
+const hStart    = $('h-start');
+const hEnd      = $('h-end');
+const tlPh      = $('tl-ph');
+const tStart    = $('t-start');
+const tEnd      = $('t-end');
+const clipDur   = $('clip-dur');
+const btnGo     = $('btn-go');
+const progWrap  = $('prog-wrap');
+const progBar   = $('prog-bar');
+const progPct   = $('prog-pct');
+const progName  = $('prog-name');
+const resultWrap = $('result-wrap');
+const btnDl     = $('btn-dl');
+const btnDlAll  = $('btn-dl-all');
+const btnReset  = $('btn-reset');
+const batchQueue = $('batch-queue');
+
+// =============================================
+//  File selection
+// =============================================
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+  const files = Array.from(e.target.files).filter(f => f.type.startsWith('video/'));
+  if (!files.length) return;
+  batchFiles = files; videoIndex = 0;
+  loadFile(files[0]);
+});
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/'));
+  if (!files.length) return;
+  batchFiles = files; videoIndex = 0;
+  loadFile(files[0]);
+});
+
+// =============================================
+//  Load a single video file
+// =============================================
+function loadFile(file) {
+  const url = URL.createObjectURL(file);
+  preview.src = url;
+  $('file-badge').textContent = file.name;
+  $('i-size').textContent = fmtSize(file.size);
+  preview.addEventListener('loadedmetadata', () => {
+    videoDuration = preview.duration;
+    videoW = preview.videoWidth;
+    videoH = preview.videoHeight;
+    selStart = 0; selEnd = videoDuration;
+    $('i-dur').textContent = fmtTime(videoDuration);
+    $('i-res').textContent = `${videoW} × ${videoH}`;
+    $('lb-e').textContent  = fmtTime(videoDuration);
+    $('lb-q').textContent  = fmtTime(videoDuration * .25);
+    $('lb-h').textContent  = fmtTime(videoDuration * .5);
+    $('lb-3q').textContent = fmtTime(videoDuration * .75);
+    updateTL(); updateInputs(); updateDur();
+    drawThumbs();
+    renderBatch();
+    workspace.classList.add('on');
+    dropZone.style.display = 'none';
+    btnGo.disabled = false;
+  }, { once: true });
+}
+
+// =============================================
+//  Batch queue UI
+// =============================================
+function renderBatch() {
+  if (batchFiles.length <= 1) {
+    batchQueue.classList.remove('on');
+    batchQueue.innerHTML = '';
+    return;
+  }
+  batchQueue.classList.add('on');
+  batchQueue.innerHTML = batchFiles.map((f, i) => {
+    const cls = i < videoIndex ? 'done' : i === videoIndex ? 'run' : 'wait';
+    const lbl = i < videoIndex ? '✅' : i === videoIndex ? '⏳' : '○';
+    return `<div class="batch-item">
+      <span class="batch-s ${cls}">${lbl}</span>
+      <span class="batch-item-name">${f.name}</span>
+    </div>`;
+  }).join('');
+}
+
+// =============================================
+//  Thumbnails
+// =============================================
+async function drawThumbs() {
+  const c   = $('thumb-canvas');
+  c.width  = tlBar.clientWidth;
+  c.height = tlBar.clientHeight;
+  const ctx = c.getContext('2d');
+  const count = Math.max(6, Math.floor(c.width / 50));
+  const vid  = document.createElement('video');
+  vid.src = preview.src; vid.muted = true;
+  await new Promise(r => vid.addEventListener('loadedmetadata', r, { once: true }));
+  for (let i = 0; i < count; i++) {
+    vid.currentTime = (i / count) * videoDuration;
+    await new Promise(r => vid.addEventListener('seeked', r, { once: true }));
+    ctx.drawImage(vid, (i / count) * c.width, 0, c.width / count, c.height);
+  }
+}
+
+// =============================================
+//  Timeline
+// =============================================
+function tlX2s(x) {
+  const r = tlBar.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (x - r.left) / r.width)) * videoDuration;
+}
+function updateTL() {
+  if (!videoDuration) return;
+  const ps = selStart / videoDuration * 100;
+  const pe = selEnd   / videoDuration * 100;
+  tlSel.style.left  = ps + '%';
+  tlSel.style.width = (pe - ps) + '%';
+  hStart.style.left = ps + '%';
+  hEnd.style.left   = pe + '%';
+}
+function updateInputs() {
+  tStart.value = s2hms(selStart);
+  tEnd.value   = s2hms(selEnd);
+}
+function updateDur() {
+  clipDur.textContent = fmtTime(Math.max(0, selEnd - selStart));
+}
+
+preview.addEventListener('timeupdate', () => {
+  if (!videoDuration) return;
+  tlPh.style.left = (preview.currentTime / videoDuration * 100) + '%';
+});
+
+// =============================================
+//  Snap threshold (seconds)
+// =============================================
+const SNAP = 0.5;  // 0.5s 磁吸阈值
+
+function snapVal(v) { return v; }
+
+function trySnapPlayhead() {
+  if (Math.abs(preview.currentTime - selStart) < SNAP) {
+    preview.currentTime = selStart;
+  }
+  if (Math.abs(preview.currentTime - selEnd) < SNAP) {
+    preview.currentTime = selEnd;
+  }
+}
+
+function trySnapHandle(which, t) {
+  const other = which === 'start' ? selEnd : selStart;
+  if (Math.abs(t - other) < SNAP) return other;
+  return t;
+}
+
+hStart.addEventListener('mousedown', e => { dragging = 'start'; e.preventDefault(); e.stopPropagation(); });
+hEnd.addEventListener('mousedown',   e => { dragging = 'end';   e.preventDefault(); e.stopPropagation(); });
+tlBar.addEventListener('mousedown',  e => {
+  if (e.target === hStart || e.target === hEnd) return;
+  let t = tlX2s(e.clientX);
+  // Snap to playhead position on click
+  if (Math.abs(t - preview.currentTime) < SNAP) t = preview.currentTime;
+  // Snap to nearest selection edge
+  if (Math.abs(t - selStart) < SNAP) t = selStart;
+  if (Math.abs(t - selEnd)   < SNAP) t = selEnd;
+  preview.currentTime = Math.max(0, Math.min(videoDuration, t));
+});
+document.addEventListener('mousemove', e => {
+  if (!dragging) {
+    // Magnetic highlight on handles when playhead is near
+    const ph = preview.currentTime;
+    hStart.classList.toggle('snap', Math.abs(ph - selStart) < SNAP);
+    hEnd.classList.toggle('snap',   Math.abs(ph - selEnd)   < SNAP);
+    return;
+  }
+  let t = tlX2s(e.clientX);
+  const ph = preview.currentTime;
+  if (dragging === 'start') {
+    selStart = Math.max(0, Math.min(trySnapHandle('start', t), selEnd - 0.05));
+    hEnd.classList.toggle('snap', Math.abs(selStart - selEnd) < SNAP);
+  } else {
+    selEnd   = Math.min(videoDuration, Math.max(trySnapHandle('end', t), selStart + 0.05));
+    hStart.classList.toggle('snap', Math.abs(selStart - selEnd) < SNAP);
+  }
+  updateTL(); updateInputs(); updateDur();
+});
+document.addEventListener('mouseup', () => { dragging = null; hStart.classList.remove('snap'); hEnd.classList.remove('snap'); });
+
+hStart.addEventListener('touchstart', e => { dragging = 'start'; e.preventDefault(); }, { passive: false });
+hEnd.addEventListener('touchstart',   e => { dragging = 'end';   e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  let t = tlX2s(e.touches[0].clientX);
+  if (dragging === 'start') selStart = Math.max(0, Math.min(trySnapHandle('start', t), selEnd - 0.05));
+  else                      selEnd   = Math.min(videoDuration, Math.max(trySnapHandle('end', t), selStart + 0.05));
+  updateTL(); updateInputs(); updateDur();
+}, { passive: true });
+document.addEventListener('touchend', () => { dragging = null; hStart.classList.remove('snap'); hEnd.classList.remove('snap'); });
+
+tStart.addEventListener('change', () => {
+  const t = hms2s(tStart.value);
+  if (!isNaN(t)) { selStart = Math.max(0, Math.min(t, selEnd - 0.05)); updateTL(); updateDur(); }
+});
+tEnd.addEventListener('change', () => {
+  const t = hms2s(tEnd.value);
+  if (!isNaN(t)) { selEnd = Math.min(videoDuration, Math.max(t, selStart + 0.05)); updateTL(); updateDur(); }
+});
+
+// =============================================
+//  Tabs
+// =============================================
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    currentTab = btn.dataset.tab;
+    $('c-clip').style.display  = (currentTab !== 'scale') ? 'block' : 'none';
+    $('c-scale').style.display = (currentTab !== 'clip')  ? 'block' : 'none';
+  });
+});
+
+// =============================================
+//  Scale
+// =============================================
+document.querySelectorAll('.sc-opt').forEach(opt => {
+  opt.addEventListener('click', () => {
+    document.querySelectorAll('.sc-opt').forEach(o => o.classList.remove('on'));
+    opt.classList.add('on');
+    selectedScale = opt.dataset.s;
+    $('custom-row').classList.toggle('on', selectedScale === 'custom');
+  });
+});
+
+// =============================================
+//  Target dims
+// =============================================
+function getTargetDims() {
+  let tw = videoW, th = videoH;
+  if (selectedScale === 'custom') {
+    const cw = parseInt($('cw').value) || 0;
+    const ch = parseInt($('ch').value) || 0;
+    if (cw && ch) { tw = cw; th = ch; }
+    else if (cw)  { tw = cw; th = Math.round(videoH * cw / videoW); }
+    else if (ch)  { th = ch; tw = Math.round(videoW * ch / videoH); }
+  } else if (selectedScale.endsWith('%')) {
+    const pct = parseInt(selectedScale) / 100;
+    tw = Math.round(videoW * pct);
+    th = Math.round(videoH * pct);
+  } else {
+    const maxH = parseInt(selectedScale);
+    if (videoH > maxH) { th = maxH; tw = Math.round(videoW * maxH / videoH); }
+  }
+  tw = Math.max(2, tw % 2 === 0 ? tw : tw - 1);
+  th = Math.max(2, th % 2 === 0 ? th : th - 1);
+  return { tw, th };
+}
+
+// =============================================
+//  Process one file
+// =============================================
+async function processOne(file) {
+  const doClip  = currentTab === 'clip'  || currentTab === 'both';
+  const doScale = currentTab === 'scale' || currentTab === 'both';
+  const { tw, th } = getTargetDims();
+
+  // MIME — prefer H.264 (most compatible) > VP9 > VP8
+  // H.264 in WebM container: Chrome/Edge support it, Safari 16.4+
+  const mimeTypes = [
+    'video/webm;codecs=h264',              // Chrome/Edge — best compat
+    'video/webm;codecs=vp9,opus',           // VP9 fallback
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp8',
+    'video/webm',                          // last resort
+  ];
+  const mimeType = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+
+  // Offscreen video element
+  const vid = document.createElement('video');
+  vid.src  = URL.createObjectURL(file);
+  vid.muted = true;
+  await new Promise(r => vid.addEventListener('loadedmetadata', r, { once: true }));
+
+  const clipS   = doClip ? selStart : 0;
+  const clipE   = doClip ? selEnd   : vid.duration;
+  const clipDur = clipE - clipS;
+
+  // Seek to start — wait for seeked (critical fix)
+  vid.currentTime = clipS;
+  await new Promise(r => vid.addEventListener('seeked', r, { once: true }));
+
+  // Canvas
+  const canvas = document.createElement('canvas');
+  canvas.width  = doScale ? tw : vid.videoWidth;
+  canvas.height = doScale ? th : vid.videoHeight;
+  const ctx = canvas.getContext('2d');
+
+  // Stream: video from canvas + audio directly from video element
+  const stream = canvas.captureStream(30);
+  try {
+    const audioTrack = vid.captureStream().getAudioTracks()[0];
+    if (audioTrack) stream.addTrack(audioTrack);
+  } catch(e) { /* audio not captured */ }
+
+  const chunks = [];
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6000000 });
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+  recorder.start(200);
+
+  // Progress based on actual video.currentTime (not wall clock)
+  await vid.play();
+  await new Promise((resolve, reject) => {
+    let rafId, lastPct = 0;
+    function tick() {
+      const elapsed = vid.currentTime - clipS;
+      const pct     = Math.min(98, Math.round((elapsed / clipDur) * 100));
+      if (pct > lastPct) {
+        lastPct = pct;
+        progBar.style.width = pct + '%';
+        progPct.textContent = pct + '%';
+        progName.textContent = `录制中 ${pct}%`;
+      }
+      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+      if (vid.ended || vid.currentTime >= clipE - 0.03) {
+        cancelAnimationFrame(rafId);
+        vid.pause();
+        if (recorder.state === 'recording') recorder.stop();
+        resolve();
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+    vid.addEventListener('ended', () => { cancelAnimationFrame(rafId); if (recorder.state === 'recording') recorder.stop(); resolve(); });
+    recorder.onerror = e => { cancelAnimationFrame(rafId); reject(e); };
+    rafId = requestAnimationFrame(tick);
+  });
+
+  await new Promise(r => {
+    if (recorder.state === 'inactive') { r(); return; }
+    recorder.addEventListener('stop', r, { once: true });
+  });
+
+  return new Blob(chunks, { type: mimeType });
+}
+
+// =============================================
+//  Main process
+// =============================================
+btnGo.addEventListener('click', async () => {
+  if (isProcessing) return;
+  isProcessing = true;
+  btnGo.disabled = true;
+  resultWrap.classList.remove('on');
+  outputUrls = [];
+
+  const total = batchFiles.length;
+  progWrap.classList.add('on');
+
+  try {
+    for (let i = 0; i < total; i++) {
+      videoIndex = i;
+      const file = batchFiles[i];
+      renderBatch();
+
+      // Load next file into preview
+      const url = URL.createObjectURL(file);
+      preview.src = url;
+      await new Promise(r => preview.addEventListener('loadedmetadata', r, { once: true }));
+      videoDuration = preview.duration;
+      videoW = preview.videoWidth;
+      videoH = preview.videoHeight;
+      selStart = 0; selEnd = videoDuration;
+      updateTL(); updateInputs(); updateDur();
+      $('i-dur').textContent = fmtTime(videoDuration);
+      $('i-res').textContent = `${videoW} × ${videoH}`;
+      $('i-size').textContent = fmtSize(file.size);
+      $('file-badge').textContent = file.name;
+
+      progName.textContent = `处理第 ${i+1}/${total} 个…`;
+      progBar.style.width = '0%';
+      progPct.textContent = '0%';
+
+      const blob = await processOne(file);
+      outputUrls.push({ name: file.name, blob, mime: mimeType });
+    }
+
+    // Show results
+    progWrap.classList.remove('on');
+    if (total === 1) {
+      const item = outputUrls[0];
+      const base = item.name.replace(/\.[^/.]+$/, '');
+      const suf  = (currentTab === 'clip' || currentTab === 'both' ? '_cut' : '') + (currentTab === 'scale' || currentTab === 'both' ? '_scaled' : '');
+      const ext  = item.mime && item.mime.includes('mp4') ? 'mp4' : 'webm';
+      btnDl.href = URL.createObjectURL(item.blob);
+      btnDl.download = `${base}${suf}.${ext}`;
+      btnDl.style.display = 'inline-block';
+      btnDlAll.style.display = 'none';
+      $('r-meta').textContent = `输出：${fmtSize(item.blob.size)}  |  格式：${ext.toUpperCase()}`;
+    } else {
+      btnDl.style.display = 'none';
+      btnDlAll.style.display = 'inline-block';
+      const orig = batchFiles.reduce((s, f) => s + f.size, 0);
+      const out  = outputUrls.reduce((s, u) => s + u.blob.size, 0);
+      $('r-meta').textContent = `原始合计：${fmtSize(orig)}  →  输出合计：${fmtSize(out)}`;
+    }
+    $('r-title').textContent = `处理完成！共 ${total} 个`;
+    resultWrap.classList.add('on');
+
+  } catch(e) {
+    progName.textContent = '❌ 出错：' + e.message;
+    console.error(e);
+  }
+
+  isProcessing = false;
+  btnGo.disabled = false;
+  renderBatch();
+});
+
+// =============================================
+//  Download all
+// =============================================
+btnDlAll.addEventListener('click', () => {
+  outputUrls.forEach((item) => {
+    const a = document.createElement('a');
+    const base = item.name.replace(/\.[^/.]+$/, '');
+    const suf  = (currentTab === 'clip' || currentTab === 'both' ? '_cut' : '') + (currentTab === 'scale' || currentTab === 'both' ? '_scaled' : '');
+    const ext  = item.mime && item.mime.includes('mp4') ? 'mp4' : 'webm';
+    a.href     = URL.createObjectURL(item.blob);
+    a.download = `${base}${suf}.${ext}`;
+    a.click();
+  });
+});
+
+// =============================================
+//  Reset
+// =============================================
+btnReset.addEventListener('click', () => {
+  batchFiles = []; videoIndex = 0;
+  preview.src = '';
+  resultWrap.classList.remove('on');
+  progWrap.classList.remove('on');
+  workspace.classList.remove('on');
+  dropZone.style.display = 'block';
+  fileInput.value = '';
+  outputUrls.forEach(u => URL.revokeObjectURL(u.blob ? '' : ''));
+  outputUrls = [];
+  btnGo.disabled = true;
+});
+
+// =============================================
+//  Helpers
+// =============================================
+function fmtTime(s) {
+  if (isNaN(s) || s < 0) return '--';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+function s2hms(s) {
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function hms2s(str) {
+  const p = str.split(':').map(Number).filter(n => !isNaN(n));
+  if (p.length >= 3) return p[0]*3600+p[1]*60+p[2];
+  if (p.length === 2) return p[0]*60+p[1];
+  return p[0] || 0;
+}
+function fmtSize(b) {
+  if (b < 1024*1024) return (b/1024).toFixed(1)+' KB';
+  return (b/1024/1024).toFixed(1)+' MB';
+}
+</script>
+</body>
+</html>
