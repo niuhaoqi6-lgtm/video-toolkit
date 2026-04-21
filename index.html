@@ -292,10 +292,14 @@ dropZone.addEventListener('drop', e => {
 //  Load a single video file
 // =============================================
 function loadFile(file) {
+  // 先保存旧 URL，等新文件加载完再释放，避免提前 revoke 导致 loadedmetadata 不触发
+  const prevUrl = preview.src && preview.src.startsWith('blob:') ? preview.src : null;
   const url = URL.createObjectURL(file);
   preview.src = url;
+  if (prevUrl) URL.revokeObjectURL(prevUrl); // 赋值后再释放旧 URL
   $('file-badge').textContent = file.name;
   $('i-size').textContent = fmtSize(file.size);
+  // 使用 once:true，确保每次 loadFile 只触发一次，不会重复堆叠
   preview.addEventListener('loadedmetadata', () => {
     videoDuration = preview.duration;
     videoW = preview.videoWidth;
@@ -528,7 +532,8 @@ async function processOne(file, clipStart, clipEnd) {
 
   // Offscreen video element — 必须 NOT muted 才能捕获音轨
   const vid = document.createElement('video');
-  vid.src   = URL.createObjectURL(file);
+  const vidUrl = URL.createObjectURL(file);
+  vid.src   = vidUrl;
   vid.muted = false;           // ← 修 bug：原来是 true，音频永远捕获不到
   vid.volume = 1;
   vid.playsInline = true;
@@ -551,26 +556,17 @@ async function processOne(file, clipStart, clipEnd) {
   if (canvas.height % 2 !== 0) canvas.height++;
   const ctx = canvas.getContext('2d');
 
-  // 统一 stream：先从 video 取音轨，再合并 canvas 视频
+  // 从视频元素捕获流，提取音轨（可能为空，如无声视频）
   const vStream = vid.captureStream();
-  const audioTrack = vStream.getAudioTracks()[0];
+  const audioTrack = vStream.getAudioTracks()[0] || null;
 
-  const stream = new MediaStream();
-  stream.addTrack(audioTrack);                         // 音轨（可能有）
-  for (const t of vStream.getVideoTracks()) stream.addTrack(t); // 原始视频轨
-
-  // 如果需要缩放，用 canvas 重新捕获视频轨替换掉原始的
-  if (doScale) {
-    stream.getVideoTracks().forEach(t => stream.removeTrack(t)); // 去掉原始视频轨
-    // 用 requestVideoFrameCallback 或 captureStream 配合 canvas 画帧
-  }
-
-  // 缩放方案：用 canvas captureStream + audioTrack 合并
+  // 统一方案：始终用 canvas captureStream 作为视频轨（支持缩放 + 截取）
+  // 直接丢弃 vStream 的视频轨，只取音轨
   const canvasStream = canvas.captureStream(30);
   const finalStream  = new MediaStream();
-  // 先加音频
+  // 先加音频（有音轨才加，避免无声视频报错）
   if (audioTrack) finalStream.addTrack(audioTrack);
-  // 再加 canvas 视频（已缩放）
+  // 再加 canvas 视频（已按目标尺寸缩放）
   for (const t of canvasStream.getVideoTracks()) finalStream.addTrack(t);
 
   const chunks = [];
@@ -616,6 +612,11 @@ async function processOne(file, clipStart, clipEnd) {
     if (recorder.state === 'inactive') { r(); return; }
     recorder.addEventListener('stop', r, { once: true });
   });
+
+  // 清理离屏 video 占用的资源
+  vid.pause();
+  URL.revokeObjectURL(vidUrl); // 释放离屏 video 的 ObjectURL
+  vid.src = '';
 
   return { blob: new Blob(chunks, { type: mimeType }), mime: mimeType };
 }
@@ -673,7 +674,8 @@ btnGo.addEventListener('click', async () => {
       const base = item.name.replace(/\.[^/.]+$/, '');
       const suf  = (currentTab === 'clip' || currentTab === 'both' ? '_cut' : '') + (currentTab === 'scale' || currentTab === 'both' ? '_scaled' : '');
       const ext  = item.mime && item.mime.includes('mp4') ? 'mp4' : 'webm';
-      btnDl.href = URL.createObjectURL(item.blob);
+      item._url = URL.createObjectURL(item.blob);
+      btnDl.href = item._url;
       btnDl.download = `${base}${suf}.${ext}`;
       btnDl.style.display = 'inline-block';
       btnDlAll.style.display = 'none';
@@ -707,7 +709,8 @@ btnDlAll.addEventListener('click', () => {
     const base = item.name.replace(/\.[^/.]+$/, '');
     const suf  = (currentTab === 'clip' || currentTab === 'both' ? '_cut' : '') + (currentTab === 'scale' || currentTab === 'both' ? '_scaled' : '');
     const ext  = item.mime && item.mime.includes('mp4') ? 'mp4' : 'webm';
-    a.href     = URL.createObjectURL(item.blob);
+    if (!item._url) item._url = URL.createObjectURL(item.blob);
+    a.href     = item._url;
     a.download = `${base}${suf}.${ext}`;
     a.click();
   });
@@ -718,13 +721,16 @@ btnDlAll.addEventListener('click', () => {
 // =============================================
 btnReset.addEventListener('click', () => {
   batchFiles = []; videoIndex = 0;
+  // 释放预览视频的 ObjectURL
+  if (preview.src && preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
   preview.src = '';
   resultWrap.classList.remove('on');
   progWrap.classList.remove('on');
   workspace.classList.remove('on');
   dropZone.style.display = 'block';
   fileInput.value = '';
-  outputUrls.forEach(u => URL.revokeObjectURL(u.blob ? '' : ''));
+  // 正确释放所有输出文件的 ObjectURL，防止内存泄漏
+  outputUrls.forEach(u => { if (u._url) URL.revokeObjectURL(u._url); });
   outputUrls = [];
   btnGo.disabled = true;
 });
