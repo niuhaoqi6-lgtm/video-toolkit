@@ -517,65 +517,84 @@ async function processOne(file, clipStart, clipEnd) {
   const { tw, th } = getTargetDims();
 
   // MIME — prefer H.264 (most compatible) > VP9 > VP8
-  // H.264 in WebM container: Chrome/Edge support it, Safari 16.4+
   const mimeTypes = [
-    'video/webm;codecs=h264',              // Chrome/Edge — best compat
-    'video/webm;codecs=vp9,opus',           // VP9 fallback
+    'video/webm;codecs=vp9,opus',           // best quality + audio
     'video/webm;codecs=vp9',
     'video/webm;codecs=vp8,opus',
     'video/webm;codecs=vp8',
-    'video/webm',                          // last resort
+    'video/webm',
   ];
   const mimeType = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
 
-  // Offscreen video element
+  // Offscreen video element — 必须 NOT muted 才能捕获音轨
   const vid = document.createElement('video');
-  vid.src  = URL.createObjectURL(file);
-  vid.muted = true;
+  vid.src   = URL.createObjectURL(file);
+  vid.muted = false;           // ← 修 bug：原来是 true，音频永远捕获不到
+  vid.volume = 1;
+  vid.playsInline = true;
   await new Promise(r => vid.addEventListener('loadedmetadata', r, { once: true }));
 
   const clipS   = doClip ? clipStart : 0;
   const clipE   = doClip ? clipEnd   : vid.duration;
   const clipDur = clipE - clipS;
 
-  // Seek to start — wait for seeked (critical fix)
+  // Seek 到截取起点，等 seek 完成再开始
   vid.currentTime = clipS;
   await new Promise(r => vid.addEventListener('seeked', r, { once: true }));
 
-  // Canvas
+  // Canvas：画布尺寸为目标分辨率
   const canvas = document.createElement('canvas');
   canvas.width  = doScale ? tw : vid.videoWidth;
   canvas.height = doScale ? th : vid.videoHeight;
+  // 偶数尺寸防编码器报错
+  if (canvas.width % 2 !== 0) canvas.width++;
+  if (canvas.height % 2 !== 0) canvas.height++;
   const ctx = canvas.getContext('2d');
 
-  // Stream: video from canvas + audio directly from video element
-  const stream = canvas.captureStream(30);
-  try {
-    const audioTrack = vid.captureStream().getAudioTracks()[0];
-    if (audioTrack) stream.addTrack(audioTrack);
-  } catch(e) { /* audio not captured */ }
+  // 统一 stream：先从 video 取音轨，再合并 canvas 视频
+  const vStream = vid.captureStream();
+  const audioTrack = vStream.getAudioTracks()[0];
+
+  const stream = new MediaStream();
+  stream.addTrack(audioTrack);                         // 音轨（可能有）
+  for (const t of vStream.getVideoTracks()) stream.addTrack(t); // 原始视频轨
+
+  // 如果需要缩放，用 canvas 重新捕获视频轨替换掉原始的
+  if (doScale) {
+    stream.getVideoTracks().forEach(t => stream.removeTrack(t)); // 去掉原始视频轨
+    // 用 requestVideoFrameCallback 或 captureStream 配合 canvas 画帧
+  }
+
+  // 缩放方案：用 canvas captureStream + audioTrack 合并
+  const canvasStream = canvas.captureStream(30);
+  const finalStream  = new MediaStream();
+  // 先加音频
+  if (audioTrack) finalStream.addTrack(audioTrack);
+  // 再加 canvas 视频（已缩放）
+  for (const t of canvasStream.getVideoTracks()) finalStream.addTrack(t);
 
   const chunks = [];
-  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6000000 });
+  const recorder = new MediaRecorder(finalStream, { mimeType, videoBitsPerSecond: 8000000 });
   recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
   recorder.start(200);
 
-  // Progress based on actual video.currentTime (not wall clock)
+  // 播放并逐帧画到 canvas（canvas 会自动缩放）
   await vid.play();
   await new Promise((resolve, reject) => {
-    let rafId, lastPct = 0;
+    let rafId;
     function tick() {
       const elapsed = vid.currentTime - clipS;
       const pct     = Math.min(98, Math.round((elapsed / clipDur) * 100));
-      if (pct > lastPct) {
-        lastPct = pct;
-        progBar.style.width = pct + '%';
-        progPct.textContent = pct + '%';
-        progName.textContent = `录制中 ${pct}%`;
-      }
-      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-      if (vid.ended || vid.currentTime >= clipE - 0.03) {
+      progBar.style.width  = pct + '%';
+      progPct.textContent  = pct + '%';
+      progName.textContent = `录制中 ${pct}%`;
+
+      // 把当前帧画到 canvas（canvas 尺寸即目标分辨率，自动缩放）
+      try { ctx.drawImage(vid, 0, 0, canvas.width, canvas.height); } catch(e) {}
+
+      // 判断是否到截取终点
+      if (vid.currentTime >= clipE - 0.05 || vid.ended) {
         cancelAnimationFrame(rafId);
         vid.pause();
         if (recorder.state === 'recording') recorder.stop();
@@ -584,7 +603,11 @@ async function processOne(file, clipStart, clipEnd) {
       }
       rafId = requestAnimationFrame(tick);
     }
-    vid.addEventListener('ended', () => { cancelAnimationFrame(rafId); if (recorder.state === 'recording') recorder.stop(); resolve(); });
+    vid.addEventListener('ended', () => {
+      cancelAnimationFrame(rafId);
+      if (recorder.state === 'recording') recorder.stop();
+      resolve();
+    });
     recorder.onerror = e => { cancelAnimationFrame(rafId); reject(e); };
     rafId = requestAnimationFrame(tick);
   });
